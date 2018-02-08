@@ -32,7 +32,7 @@ public class BufMgr implements GlobalConst {
   /** Array of frame descriptions */
   private FrameDesc[] frametab;
   /** HashMap mapping page numbers to frame descriptions */
-  private HashMap<Integer, FrameDesc> framedir;
+  private HashMap<PageId, FrameDesc> framedir;
   /** Clock for replacement policy */
   private Clock clock;
 
@@ -81,9 +81,12 @@ public class BufMgr implements GlobalConst {
    */
   public void pinPage(PageId pageno, Page mempage, int contents) {
       /* Does the page exist already in the buffer pool? */
-    if(framedir.containsKey(pageno.hashCode())) {
-      FrameDesc frame = framedir.get(pageno.hashCode());
+    if(framedir.containsKey(pageno)) {
+      FrameDesc frame = framedir.get(pageno);
       if(frame.isValid()){
+        if(contents == PIN_MEMCPY && frame.isValid() && frame.getPincount() > 0){
+          throw new IllegalStateException("contents==PIN_MEMCPY and page is pinned");
+        }
         frame.incPincount();
       }
     }
@@ -91,26 +94,10 @@ public class BufMgr implements GlobalConst {
       /* choose victim */
       int victim = clock.pickVictim(frametab);
       if (victim < 0){
-        throw new IllegalStateException();
+        throw new IllegalStateException("All pages are pinned");
       }
       else{
-        int victimpagenum = frametab[victim].getpagenum();
-        PageId victimPage = new PageId(victimpagenum);
-
-        if(frametab[victim].isDirty()){
-            flushPage(victimPage);
-        }
-        frametab[victim].setFrame(pageno.hashCode());
-        framedir.remove(victimpagenum);
-        framedir.put(pageno.hashCode(), frametab[victim]);
-        if(contents == PIN_MEMCPY){
-          bufferpool[victim] = mempage;
-        }
-        else if(contents == PIN_DISKIO){
-          Minibase.DiskManager.read_page(pageno, mempage);
-          bufferpool[victim] = mempage;
-        }
-        /* else contents == PIN_NOOP and we copy nothing */
+        replacePage(victim, pageno, mempage, contents);
       }
     }
 
@@ -127,7 +114,15 @@ public class BufMgr implements GlobalConst {
    */
   public void unpinPage(PageId pageno, boolean dirty) {
 
-    throw new UnsupportedOperationException("Not implemented");
+    if(!framedir.containsKey(pageno) || (framedir.get(pageno).isValid() && framedir.get(pageno).getPincount() < 1)){
+        throw new IllegalArgumentException("Page is not in buffer pool or not pinned");
+    }
+    else if(framedir.get(pageno).isValid()){
+      framedir.get(pageno).decPincount();
+      if(dirty == UNPIN_DIRTY){
+        framedir.get(pageno).setDirtyBit(true);
+      }
+    }
 
   } // public void unpinPage(PageId pageno, boolean dirty)
   
@@ -144,7 +139,19 @@ public class BufMgr implements GlobalConst {
    */
   public PageId newPage(Page firstpg, int run_size) {
 
-    throw new UnsupportedOperationException("Not implemented");
+      PageId newId = Minibase.DiskManager.allocate_page(run_size);
+      if(framedir.containsKey(newId) && framedir.get(newId).isValid() && framedir.get(newId).getPincount() > 0){
+        throw new IllegalArgumentException("firstpg is already pinned");
+      }
+      Minibase.DiskManager.read_page(newId, firstpg);
+      int victim = clock.pickVictim(frametab);
+      if(victim < 0){
+        throw new IllegalStateException("All pages are pinned");
+      }
+      else{
+        replacePage(victim, newId, firstpg, PIN_MEMCPY);
+      }
+      return newId;
 
   } // public PageId newPage(Page firstpg, int run_size)
 
@@ -156,7 +163,15 @@ public class BufMgr implements GlobalConst {
    */
   public void freePage(PageId pageno) {
 
-    throw new UnsupportedOperationException("Not implemented");
+      if(framedir.containsKey(pageno) && framedir.get(pageno).isValid()){
+        if(framedir.get(pageno).getPincount() > 0){
+          throw new IllegalArgumentException("Page is currently pinned");
+        }
+        else {
+          framedir.get(pageno).setValidBit(false);
+        }
+      }
+      Minibase.DiskManager.deallocate_page(pageno);
 
   } // public void freePage(PageId firstid)
 
@@ -167,8 +182,9 @@ public class BufMgr implements GlobalConst {
    * 
    */
   public void flushAllFrames() {
-
-    throw new UnsupportedOperationException("Not implemented");
+      for(int i = 0; i < maxframes; i++){
+        Minibase.DiskManager.write_page(frametab[i].getPageId(), bufferpool[i]);
+      }
 
   } // public void flushAllFrames()
 
@@ -178,9 +194,14 @@ public class BufMgr implements GlobalConst {
    * @throws IllegalArgumentException if the page is not in the buffer pool
    */
   public void flushPage(PageId pageno) {
-	  
-	throw new UnsupportedOperationException("Not implemented");
-    
+
+      if(framedir.containsKey(pageno)){
+        Minibase.DiskManager.write_page(pageno, bufferpool[framedir.get(pageno).hashCode()]);
+      }
+      else{
+        throw new IllegalArgumentException("Page is not in the buffer pool");
+      }
+
   }
 
    /**
@@ -196,11 +217,37 @@ public class BufMgr implements GlobalConst {
   public int getNumUnpinned() {
     int count = 0;
       for(int i = 0; i < maxframes; i++){
-        if(frametab[i].getPincount() == 0){
+        if(frametab[i].isValid() && frametab[i].getPincount() == 0){
           count++;
         }
       }
       return count;
+  }
+
+  /**
+   * Performs all of the replacement when evicting a page and
+   * inserting a new page. Cannot fail so checks must be done before
+   * replacePage() is called.
+   * @param victim  Page number of victim page as integer
+   * @param pageno  Page number of new page as PageId
+   * @param mempage New page as Page
+   * @param contents  Describes how contents of frame are determined
+   */
+  public void replacePage(int victim, PageId pageno, Page mempage, int contents) {
+    if (frametab[victim].isValid() && frametab[victim].isDirty()) {
+      flushPage(frametab[victim].getPageId());
+    }
+    frametab[victim].setFrame(pageno);
+    framedir.remove(framedir.get(frametab[victim].getPageId()));
+    framedir.put(pageno, frametab[victim]);
+    // deal with contents
+    if (contents == PIN_MEMCPY) {
+      bufferpool[victim] = mempage;
+    } else if (contents == PIN_DISKIO) {
+      Minibase.DiskManager.read_page(pageno, mempage);
+      bufferpool[victim] = mempage;
+    }
+    /* else contents == PIN_NOOP and we copy nothing */
   }
 
 } // public class BufMgr implements GlobalConst

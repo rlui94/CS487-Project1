@@ -1,4 +1,5 @@
 package bufmgr;
+import global.PageId;
 
 /**
  * Frame description object
@@ -6,7 +7,7 @@ package bufmgr;
  */
 public class FrameDesc {
     /** Associated page number */
-    private int pagenum;
+    private PageId pagenum;
     /** Dirty bit */
     private boolean isDirty;
     /** Valid bit */
@@ -23,15 +24,15 @@ public class FrameDesc {
      * @param pagenum   Page number associated with this frame description
      */
     public FrameDesc(int pagenum){
-        this.pagenum = pagenum;
+        this.pagenum = new PageId(pagenum);
         this.isDirty = false;
-        this.isValid = true;
+        this.isValid = false;
         this.pincount = 0;
-        this.refbit = true;
+        this.refbit = false;
     }
 
     /** Set the values of this frame description */
-    public void setFrame (int pagenum){
+    public void setFrame (PageId pagenum) {
         this.pagenum = pagenum;
         this.isDirty = false;
         this.isValid = true;
@@ -45,6 +46,9 @@ public class FrameDesc {
     }
     public void incPincount(){
         this.pincount++;
+    }
+    public void decPincount(){
+        this.pincount--;
     }
 
     /** Getters */
@@ -60,12 +64,18 @@ public class FrameDesc {
     public boolean getrefbit(){
         return this.refbit;
     }
-    public int getpagenum(){
+    public PageId getPageId(){
         return this.pagenum;
     }
 
     /** Setters*/
     public void setrefbit(boolean bit){
         refbit = bit;
+    }
+    public void setDirtyBit(boolean bit){
+        isDirty = bit;
+    }
+    public void setValidBit(boolean bit){
+        isValid = bit;
     }
 }

@@ -14,6 +14,14 @@ public class Clock {
         currframe = -1;
     }
 
+    /**
+     * Chooses the victim frame to evict from the buffer pool
+     * @param frametab is the frame table we iterate through to find
+     *                 the frame to evict
+     * @return  value is negative if every page in the buffer
+     * pool is pinned, otherwise a positive integer from 1 to numframes-1
+     *
+     */
     public int pickVictim(FrameDesc[] frametab){
         /* make sure we look at a new frame */
         currframe++;
