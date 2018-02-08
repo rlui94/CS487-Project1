@@ -23,7 +23,14 @@ import java.util.HashMap;
  * relational operators.
  */
 public class BufMgr implements GlobalConst {
-
+  /** Number of frames allowed */
+  private int maxframes;
+  /** Number of current valid frames in buffer pool */
+  private int currframes;
+  /** Array of pages in the current buffer pool */
+  private Page[] bufferpool;
+  /** HashMap mapping page numbers to frame descriptions */
+  private HashMap<Integer, FrameDesc> frametab;
 
   /**
    * Constructs a buffer manager by initializing member data.  
@@ -31,8 +38,11 @@ public class BufMgr implements GlobalConst {
    * @param numframes number of frames in the buffer pool
    */
   public BufMgr(int numframes) {
-
-    throw new UnsupportedOperationException("Not implemented");
+    maxframes = numframes;
+    currframes = 0;
+    bufferpool = new Page[numframes];
+    frametab = new HashMap<>(numframes);
+    for
 
   } // public BufMgr(int numframes)
 
@@ -65,8 +75,32 @@ public class BufMgr implements GlobalConst {
    * @throws IllegalStateException if all pages are pinned (i.e. pool is full)
    */
   public void pinPage(PageId pageno, Page mempage, int contents) {
+      /* Does the page exist already in the buffer pool? */
+    if(frametab.containsKey(pageno.hashCode())) {
+      FrameDesc frame = frametab.get(pageno.hashCode());
+      if(frame.isValid()){
+        frame.incPincount();
+      }
+    }
+    else {
+      /* If not read it in */
+      Minibase.DiskManager.read_page(pageno, mempage);
 
-	throw new UnsupportedOperationException("Not implemented");
+      if(currframes == maxframes) {
+
+      }
+      else{
+
+      }
+
+      if (contents == PIN_DISKIO) {
+
+      } else if (contents == PIN_MEMCPY) {
+
+      } else {
+        // contents == PIN_NOOP, do nothing
+      }
+    }
 
   } // public void pinPage(PageId pageno, Page page, int contents)
   
