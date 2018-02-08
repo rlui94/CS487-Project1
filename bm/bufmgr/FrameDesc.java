@@ -17,8 +17,6 @@ public class FrameDesc {
      * Reset to true when pincount is zero.
      */
     private boolean refbit;
-    /** Location in buffer pool array */
-    private int bploc;
 
     /**
      * Takes a page number and creates a frame description object
@@ -30,7 +28,6 @@ public class FrameDesc {
         this.isValid = true;
         this.pincount = 0;
         this.refbit = true;
-        this.bploc = -1;
     }
 
     /** Set the values of this frame description */
@@ -40,7 +37,6 @@ public class FrameDesc {
         this.isValid = true;
         this.pincount = 0;
         this.refbit = true;
-        this.bploc = -1;
     }
 
     /** pincount manipulation */
@@ -64,7 +60,12 @@ public class FrameDesc {
     public boolean getrefbit(){
         return this.refbit;
     }
-    public int getBploc(){
-        return this.bploc;
+    public int getpagenum(){
+        return this.pagenum;
+    }
+
+    /** Setters*/
+    public void setrefbit(boolean bit){
+        refbit = bit;
     }
 }

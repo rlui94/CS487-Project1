@@ -29,8 +29,12 @@ public class BufMgr implements GlobalConst {
   private int currframes;
   /** Array of pages in the current buffer pool */
   private Page[] bufferpool;
+  /** Array of frame descriptions */
+  private FrameDesc[] frametab;
   /** HashMap mapping page numbers to frame descriptions */
-  private HashMap<Integer, FrameDesc> frametab;
+  private HashMap<Integer, FrameDesc> framedir;
+  /** Clock for replacement policy */
+  private Clock clock;
 
   /**
    * Constructs a buffer manager by initializing member data.  
@@ -41,8 +45,9 @@ public class BufMgr implements GlobalConst {
     maxframes = numframes;
     currframes = 0;
     bufferpool = new Page[numframes];
-    frametab = new HashMap<>(numframes);
-    for
+    frametab = new FrameDesc[numframes];
+    framedir = new HashMap<>(numframes);
+    clock = new Clock(numframes);
 
   } // public BufMgr(int numframes)
 
@@ -76,31 +81,39 @@ public class BufMgr implements GlobalConst {
    */
   public void pinPage(PageId pageno, Page mempage, int contents) {
       /* Does the page exist already in the buffer pool? */
-    if(frametab.containsKey(pageno.hashCode())) {
-      FrameDesc frame = frametab.get(pageno.hashCode());
+    if(framedir.containsKey(pageno.hashCode())) {
+      FrameDesc frame = framedir.get(pageno.hashCode());
       if(frame.isValid()){
         frame.incPincount();
       }
     }
     else {
-      /* If not read it in */
-      Minibase.DiskManager.read_page(pageno, mempage);
-
-      if(currframes == maxframes) {
-
+      /* choose victim */
+      int victim = clock.pickVictim(frametab);
+      if (victim < 0){
+        throw new IllegalStateException();
       }
       else{
+        int victimpagenum = frametab[victim].getpagenum();
+        PageId victimPage = new PageId(victimpagenum);
 
-      }
-
-      if (contents == PIN_DISKIO) {
-
-      } else if (contents == PIN_MEMCPY) {
-
-      } else {
-        // contents == PIN_NOOP, do nothing
+        if(frametab[victim].isDirty()){
+            flushPage(victimPage);
+        }
+        frametab[victim].setFrame(pageno.hashCode());
+        framedir.remove(victimpagenum);
+        framedir.put(pageno.hashCode(), frametab[victim]);
+        if(contents == PIN_MEMCPY){
+          bufferpool[victim] = mempage;
+        }
+        else if(contents == PIN_DISKIO){
+          Minibase.DiskManager.read_page(pageno, mempage);
+          bufferpool[victim] = mempage;
+        }
+        /* else contents == PIN_NOOP and we copy nothing */
       }
     }
+
 
   } // public void pinPage(PageId pageno, Page page, int contents)
   
@@ -174,14 +187,20 @@ public class BufMgr implements GlobalConst {
    * Gets the total number of buffer frames.
    */
   public int getNumFrames() {
-    throw new UnsupportedOperationException("Not implemented");
+      return maxframes;
   }
 
   /**
    * Gets the total number of unpinned buffer frames.
    */
   public int getNumUnpinned() {
-    throw new UnsupportedOperationException("Not implemented");
+    int count = 0;
+      for(int i = 0; i < maxframes; i++){
+        if(frametab[i].getPincount() == 0){
+          count++;
+        }
+      }
+      return count;
   }
 
 } // public class BufMgr implements GlobalConst
