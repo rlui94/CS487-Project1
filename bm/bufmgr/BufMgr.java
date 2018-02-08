@@ -32,7 +32,7 @@ public class BufMgr implements GlobalConst {
   /** Array of frame descriptions */
   private FrameDesc[] frametab;
   /** HashMap mapping page numbers to frame descriptions */
-  private HashMap<PageId, FrameDesc> framedir;
+  private HashMap<Integer, FrameDesc> framedir;
   /** Clock for replacement policy */
   private Clock clock;
 
@@ -46,6 +46,11 @@ public class BufMgr implements GlobalConst {
     currframes = 0;
     bufferpool = new Page[numframes];
     frametab = new FrameDesc[numframes];
+    for(int i = 0; i < numframes; i++){
+      bufferpool[i] = new Page();
+      frametab[i] = new FrameDesc();
+      frametab[i].setBploc(i);
+    }
     framedir = new HashMap<>(numframes);
     clock = new Clock(numframes);
 
@@ -81,13 +86,12 @@ public class BufMgr implements GlobalConst {
    */
   public void pinPage(PageId pageno, Page mempage, int contents) {
       /* Does the page exist already in the buffer pool? */
-    if(framedir.containsKey(pageno)) {
-      FrameDesc frame = framedir.get(pageno);
-      if(frame.isValid()){
-        if(contents == PIN_MEMCPY && frame.isValid() && frame.getPincount() > 0){
+    if(framedir.containsKey(pageno.hashCode())) {
+      if(framedir.get(pageno.hashCode()).isValid()){
+        if(contents == PIN_MEMCPY && framedir.get(pageno.hashCode()).isValid() && framedir.get(pageno.hashCode()).getPincount() > 0){
           throw new IllegalStateException("contents==PIN_MEMCPY and page is pinned");
         }
-        frame.incPincount();
+        framedir.get(pageno.hashCode()).incPincount();
       }
     }
     else {
@@ -114,13 +118,16 @@ public class BufMgr implements GlobalConst {
    */
   public void unpinPage(PageId pageno, boolean dirty) {
 
-    if(!framedir.containsKey(pageno) || (framedir.get(pageno).isValid() && framedir.get(pageno).getPincount() < 1)){
+    if(!framedir.containsKey(pageno.hashCode()) || (framedir.get(pageno.hashCode()).isValid() && framedir.get(pageno.hashCode()).getPincount() < 1)){
         throw new IllegalArgumentException("Page is not in buffer pool or not pinned");
     }
-    else if(framedir.get(pageno).isValid()){
-      framedir.get(pageno).decPincount();
+    else if(framedir.get(pageno.hashCode()).isValid()){
+      framedir.get(pageno.hashCode()).decPincount();
+      if(framedir.get(pageno.hashCode()).getPincount() < 1){
+        framedir.get(pageno.hashCode()).setrefbit(true);
+      }
       if(dirty == UNPIN_DIRTY){
-        framedir.get(pageno).setDirtyBit(true);
+        framedir.get(pageno.hashCode()).setDirtyBit(true);
       }
     }
 
@@ -140,17 +147,22 @@ public class BufMgr implements GlobalConst {
   public PageId newPage(Page firstpg, int run_size) {
 
       PageId newId = Minibase.DiskManager.allocate_page(run_size);
-      if(framedir.containsKey(newId) && framedir.get(newId).isValid() && framedir.get(newId).getPincount() > 0){
-        throw new IllegalArgumentException("firstpg is already pinned");
-      }
+      int victim = 0;
       Minibase.DiskManager.read_page(newId, firstpg);
-      int victim = clock.pickVictim(frametab);
-      if(victim < 0){
-        throw new IllegalStateException("All pages are pinned");
+      if(framedir.containsKey(newId.hashCode()) && framedir.get(newId.hashCode()).isValid()) {
+        if (framedir.get(newId.hashCode()).getPincount() > 0) {
+          throw new IllegalArgumentException("firstpg is already pinned");
+        } else {
+          victim = framedir.get(newId.hashCode()).getBploc();
+        }
       }
-      else{
-        replacePage(victim, newId, firstpg, PIN_MEMCPY);
+      else {
+        victim = clock.pickVictim(frametab);
+        if (victim < 0) {
+          throw new IllegalStateException("All pages are pinned");
+        }
       }
+      replacePage(victim, newId, firstpg, PIN_MEMCPY);
       return newId;
 
   } // public PageId newPage(Page firstpg, int run_size)
@@ -163,12 +175,12 @@ public class BufMgr implements GlobalConst {
    */
   public void freePage(PageId pageno) {
 
-      if(framedir.containsKey(pageno) && framedir.get(pageno).isValid()){
-        if(framedir.get(pageno).getPincount() > 0){
+      if(framedir.containsKey(pageno.hashCode()) && framedir.get(pageno.hashCode()).isValid()){
+        if(framedir.get(pageno.hashCode()).getPincount() > 0){
           throw new IllegalArgumentException("Page is currently pinned");
         }
         else {
-          framedir.get(pageno).setValidBit(false);
+          framedir.get(pageno.hashCode()).setValidBit(false);
         }
       }
       Minibase.DiskManager.deallocate_page(pageno);
@@ -183,7 +195,9 @@ public class BufMgr implements GlobalConst {
    */
   public void flushAllFrames() {
       for(int i = 0; i < maxframes; i++){
-        Minibase.DiskManager.write_page(frametab[i].getPageId(), bufferpool[i]);
+        if(frametab[i].isValid()) {
+          Minibase.DiskManager.write_page(new PageId(frametab[i].getPageId()), bufferpool[i]);
+        }
       }
 
   } // public void flushAllFrames()
@@ -195,8 +209,8 @@ public class BufMgr implements GlobalConst {
    */
   public void flushPage(PageId pageno) {
 
-      if(framedir.containsKey(pageno)){
-        Minibase.DiskManager.write_page(pageno, bufferpool[framedir.get(pageno).hashCode()]);
+      if(framedir.containsKey(pageno.hashCode())){
+        Minibase.DiskManager.write_page(pageno, bufferpool[framedir.get(pageno.hashCode()).getBploc()]);
       }
       else{
         throw new IllegalArgumentException("Page is not in the buffer pool");
@@ -234,20 +248,24 @@ public class BufMgr implements GlobalConst {
    * @param contents  Describes how contents of frame are determined
    */
   public void replacePage(int victim, PageId pageno, Page mempage, int contents) {
+    int victimId = frametab[victim].getPageId();
     if (frametab[victim].isValid() && frametab[victim].isDirty()) {
-      flushPage(frametab[victim].getPageId());
+      flushPage(new PageId(victimId));
     }
-    frametab[victim].setFrame(pageno);
-    framedir.remove(framedir.get(frametab[victim].getPageId()));
-    framedir.put(pageno, frametab[victim]);
+    if(framedir.containsKey(victimId)) {
+      framedir.remove(victimId);
+    }
+    frametab[victim].setFrame(pageno.hashCode());
+    framedir.put(pageno.hashCode(), frametab[victim]);
     // deal with contents
     if (contents == PIN_MEMCPY) {
-      bufferpool[victim] = mempage;
+      bufferpool[frametab[victim].getBploc()] = mempage;
     } else if (contents == PIN_DISKIO) {
       Minibase.DiskManager.read_page(pageno, mempage);
-      bufferpool[victim] = mempage;
+      bufferpool[frametab[victim].getBploc()] = mempage;
     }
     /* else contents == PIN_NOOP and we copy nothing */
+    frametab[victim].incPincount();
   }
 
 } // public class BufMgr implements GlobalConst

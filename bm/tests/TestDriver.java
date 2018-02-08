@@ -25,10 +25,10 @@ class TestDriver implements GlobalConst {
   protected String DB_PATH = System.getProperty("user.name") + ".minibase";
 
   /** Default database size (in pages). */
-  protected int DB_SIZE = 10000;
+  protected int DB_SIZE = 15;
 
   /** Default buffer pool size (in pages) */
-  protected int BUF_SIZE = 100;
+  protected int BUF_SIZE = 10;
 
   // --------------------------------------------------------------------------
 

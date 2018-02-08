@@ -24,7 +24,12 @@ public class Clock {
      */
     public int pickVictim(FrameDesc[] frametab){
         /* make sure we look at a new frame */
-        currframe++;
+        if(currframe < numframes-1) {
+            currframe++;
+        }
+        else{
+            currframe = 0;
+        }
         /* iterate through n-1 frames twice */
         for(int counter = 0; counter < numframes * 2; counter++){
             /* if invalid, return currframe */
@@ -41,7 +46,7 @@ public class Clock {
                 }
             }
             /* make sure we stay within 0 to n-1 */
-            if(currframe < numframes-2){
+            if(currframe < numframes-1){
                 currframe++;
             }
             else{

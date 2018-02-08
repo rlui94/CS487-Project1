@@ -7,7 +7,7 @@ import global.PageId;
  */
 public class FrameDesc {
     /** Associated page number */
-    private PageId pagenum;
+    private int pagenum;
     /** Dirty bit */
     private boolean isDirty;
     /** Valid bit */
@@ -18,21 +18,19 @@ public class FrameDesc {
      * Reset to true when pincount is zero.
      */
     private boolean refbit;
+    private int bploc;
 
-    /**
-     * Takes a page number and creates a frame description object
-     * @param pagenum   Page number associated with this frame description
-     */
-    public FrameDesc(int pagenum){
-        this.pagenum = new PageId(pagenum);
+    public FrameDesc(){
+        this.pagenum = -1;
         this.isDirty = false;
         this.isValid = false;
         this.pincount = 0;
         this.refbit = false;
+        this.bploc = -1;
     }
 
     /** Set the values of this frame description */
-    public void setFrame (PageId pagenum) {
+    public void setFrame (int pagenum) {
         this.pagenum = pagenum;
         this.isDirty = false;
         this.isValid = true;
@@ -64,8 +62,11 @@ public class FrameDesc {
     public boolean getrefbit(){
         return this.refbit;
     }
-    public PageId getPageId(){
+    public int getPageId(){
         return this.pagenum;
+    }
+    public int getBploc(){
+        return this.bploc;
     }
 
     /** Setters*/
@@ -78,4 +79,8 @@ public class FrameDesc {
     public void setValidBit(boolean bit){
         isValid = bit;
     }
+    public void setBploc(int loc){
+        bploc = loc;
+    }
+
 }
